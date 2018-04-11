@@ -13,7 +13,11 @@ var respQuery = 0;	/* 0:返答要求なし、1～:返答要求あり */
 var respStr;		/* 返答文字列 */
 var respMess;		/* レスポンスメッセージオブジェクト */
 var data;
-var queryTblNum		/* クエリで一致した配列番号 */
+var queryTblNum;		/* クエリで一致した配列番号 */
+var earnUser;		/* 学習させようとしているユーザー */
+var earnQuery;		/* 学習させようとしているクエリ */
+var earnResp;		/* 学習させようとしているレスポンス */
+var earnPhase = 0;	/* 学習フェーズ */
 
 // tomlファイルの読み込み
 readFileAsync("yayoi.toml").then(obj => {
@@ -31,7 +35,7 @@ client.on('ready', () => {
 	{
 		timeState = 0;
 	}
-	console.log(timeState);
+	console.log("timeState = " + timeState);
 	dayState = time.getDay();
 });
 
@@ -47,7 +51,7 @@ setInterval(function()
 		{
 			timeState = 0;
 			client.user.setAvatar('yayoi_yoru.png');
-			console.log(timeState);
+			console.log("timeState = " + timeState);
 		}
 	}
 	else if ( hour >= 6 )
@@ -56,7 +60,7 @@ setInterval(function()
 		{
 			timeState = 1;
 			client.user.setAvatar('yayoi_hiru.png');
-			console.log(timeState);
+			console.log("timeState = " + timeState);
 		}
 	}
 //	console.log(hour);
@@ -75,10 +79,61 @@ setInterval(function()
 /* メッセージ受信時イベント */
 client.on('message', (message) => 
 {
+	if ( earnUser == message.author.id )
+	{
+		if ( earnPhase == 1 )
+		{	/* クエリを設定 */
+			if ( message.content != "キャンセル" )
+			{
+				earnQuery = message.content;
+				console.log(earnQuery);
+				earnPhase = 2;
+				message.channel.send("ζ\*\'ヮ\'\)ζ＜なんて返せばいいですか？");
+			}
+			else
+			{
+				message.channel.send("キャンセルしましたー")
+				earnQuery = 0;
+				earnPhase = 0;
+			}
+		}
+		else if ( earnPhase == 2 )
+		{	/* 返すレスポンスを設定 */
+			if ( message.content != "キャンセル" )
+			{
+				earnQuery = message.content;
+				console.log(earnQuery);
+				earnPhase = 2;
+				/* tomlに出力 */
+				
+				message.channel.send("ζ\*\'ヮ\'\)ζ＜うっうー！覚えましたよー！");
+				earnQuery = 0;
+				earnPhase = 0;
+			}
+			else
+			{
+				message.channel.send("キャンセルしましたー");
+				earnQuery = 0;
+				earnPhase = 0;
+			}
+		}
+	}
 	/* 自分の発言に応答しないようブロック */
 	if ( (message.channel.name == 'やよいとおしゃべり') && (message.author.id != client.user.id))
 	{
 		QueryTblCheck(message);
+		if ( (message.content.match("単語覚えてくれないか？")) && (earnPhase == 0) )
+		{
+			console.log("単語");
+			message.channel.send("ζ\*\'ヮ\'\)ζ＜わかりました！何を覚えますか？");
+			earnUser = message.author.id;
+			earnPhase = 1;
+		}
+		if ( message.content.match(/.*もやし確認.*/) )
+		{
+			moyashiData = fs.readFileSync("moyashi/" + message.author.id + ".txt", 'binary');
+			message.channel.send("ζ\*\'ヮ\'\)ζ＜もやしは " + moyashiData +" だけ溜まってますよー！");
+		}
 		if ( message.content.match(/^:yayoi:$/) )
 		{
 			message.delete();
@@ -92,6 +147,10 @@ client.on('message', (message) =>
 /* 返答チェック */
 function QueryTblCheck(message)
 {
+	var moyashiData;
+	var moyashiValue = 0;
+	var moyashiFile;
+
 	/* 返答するキーワード分だけループ */
 	for ( loop = 0; loop < data.queryTbl.arr.length; loop ++ )
 	{
@@ -102,8 +161,38 @@ function QueryTblCheck(message)
 			respMess = message;
 			respQuery = 1;
 			message.channel.startTyping();
+			moyashiFile = isExistFile("moyashi/" + message.author.id + ".txt");
+			if ( moyashiFile != false )
+			{
+				moyashiData = fs.readFileSync("moyashi/" + message.author.id + ".txt", 'binary');
+				if ( typeof(moyashiData) === 'undefined' )
+				{
+					console.log("もやしトークン初期化");
+					moyashiValue = 1;
+				}
+				else
+				{
+					moyashiData ++;
+					moyashiValue = moyashiData;
+				}
+			}
+			else
+			{
+				moyashiValue = 1;
+			}
+			console.log("moyashiValue = " + moyashiValue);
+			fs.writeFileSync("moyashi/" + message.author.id + ".txt", moyashiValue, 'binary');
+			break;
 		}
 	}
+}
+function isExistFile(file) {
+  try {
+    fs.statSync(file);
+    return true
+  } catch(err) {
+    if(err.code === 'ENOENT') return false
+  }
 }
 
 client.login(process.env.YAYOIBOT_TOKEN);
