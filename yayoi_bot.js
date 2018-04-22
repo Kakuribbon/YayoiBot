@@ -1,10 +1,22 @@
 require('dotenv').config();
+/* TYPEDEF */
+const TYPE_TIMEOUT = 10;
+const ASA_TIME = 7;
+const YUUGATA_TIME = 16;
+const YORU_TIME = 19;
+const TIMESTATE_ASA = 1;
+const TIMESTATE_YORU = 0;
+const TIMESTATE_YUUGATA = 2;
+const TIMESTATE_NUM = 3;		/* 1日のタイムテーブルの数 */
+
 const Discord = require('discord.js');
 const BotData = require('toml');
 const { promisify } = require("util");
 const fs = require("fs");
 const readFileAsync = promisify(fs.readFile);
 const client = new Discord.Client();
+
+/* variable */
 var hour, youbi;
 var hour = 1000 * 60 * 60;
 var timeState;		/* 0:夜、1:朝昼 */
@@ -13,11 +25,14 @@ var respQuery = 0;	/* 0:返答要求なし、1～:返答要求あり */
 var respStr;		/* 返答文字列 */
 var respMess;		/* レスポンスメッセージオブジェクト */
 var data;
-var queryTblNum;		/* クエリで一致した配列番号 */
+var queryTblNum;	/* クエリで一致した配列番号 */
 var earnUser;		/* 学習させようとしているユーザー */
 var earnQuery;		/* 学習させようとしているクエリ */
 var earnResp;		/* 学習させようとしているレスポンス */
 var earnPhase = 0;	/* 学習フェーズ */
+var earnFileStatQuery;	/* 学習ファイルサイズ(クエリ) */
+var earnFileStatResp;	/* 学習ファイルサイズ(レスポンス) */
+var channelObj		/* チャンネルオブジェクト */
 
 // tomlファイルの読み込み
 readFileAsync("yayoi.toml").then(obj => {
@@ -27,13 +42,14 @@ readFileAsync("yayoi.toml").then(obj => {
 client.on('ready', () => {
 	console.log('ログインしました');
 	var time = new Date();
-	if (time.getHours() >= 20)
+	console.log(time.getHours());
+	if ((time.getHours() >= YORU_TIME) && (time.getHours() <= ASA_TIME))
 	{
-		timeState = 1;
+		timeState = TIMESTATE_ASA;
 	}
 	else
 	{
-		timeState = 0;
+		timeState = TIMESTATE_YORU;
 	}
 	console.log("timeState = " + timeState);
 	dayState = time.getDay();
@@ -45,25 +61,33 @@ setInterval(function()
 	hour = time.getHours();
 	dayState = time.getDay();
 
-	if ( hour >= 20 )
+	if ( hour >= YORU_TIME )
 	{
-		if ( timeState == 1 )
+		if ( timeState != TIMESTATE_YORU )
 		{
-			timeState = 0;
+			timeState = TIMESTATE_YORU;
 			client.user.setAvatar('yayoi_yoru.png');
 			console.log("timeState = " + timeState);
 		}
 	}
-	else if ( hour >= 6 )
+	else if ( hour >= YUUGATA_TIME )
 	{
-		if ( timeState == 0 )
+		if ( timeState != TIMESTATE_YUUGATA )
 		{
-			timeState = 1;
+			timeState = TIMESTATE_YUUGATA;
+			client.user.setAvatar('yayoi_ajimi.png');
+			console.log("timeState = " + timeState);
+		}
+	}
+	else if ( hour >= ASA_TIME )
+	{
+		if ( timeState != TIMESTATE_ASA )
+		{
+			timeState = TIMESTATE_ASA;
 			client.user.setAvatar('yayoi_hiru.png');
 			console.log("timeState = " + timeState);
 		}
 	}
-//	console.log(hour);
 },180000);
 
 setInterval(function()
@@ -74,11 +98,20 @@ setInterval(function()
 		respQuery = 0;
 		respMess.channel.stopTyping();
 	}
+	else if ( respMess )
+	{	/* respMessが定義されている場合 */
+		if ( client.user.typingIn(respMess) )
+		{	/* タイピング中なら止める */
+			respMess.channel.stopTyping();
+		}
+	}
 },3000);
 
 /* メッセージ受信時イベント */
-client.on('message', (message) => 
+client.on('message', (message) =>
 {
+	var earnWord;		/* 学習した単語 */
+
 	if ( earnUser == message.author.id )
 	{
 		if ( earnPhase == 1 )
@@ -93,6 +126,7 @@ client.on('message', (message) =>
 			else
 			{
 				message.channel.send("キャンセルしましたー")
+				earnResp = 0;
 				earnQuery = 0;
 				earnPhase = 0;
 			}
@@ -101,18 +135,36 @@ client.on('message', (message) =>
 		{	/* 返すレスポンスを設定 */
 			if ( message.content != "キャンセル" )
 			{
-				earnQuery = message.content;
-				console.log(earnQuery);
-				earnPhase = 2;
+				earnResp = message.content;
+				console.log(earnResp);
+
+				/* エスケープ文字を変換 */
+				earnQuery = escapeRegExp(earnQuery);
+				earnResp = escapeRegExp(earnResp);
+
 				/* tomlに出力 */
-				
-				message.channel.send("ζ\*\'ヮ\'\)ζ＜うっうー！覚えましたよー！");
+				fs.writeFileSync("Response/" + message.author.id + ".txt", earnResp, 'UTF-8');
+				fs.writeFileSync("Query/" + message.author.id + ".txt", earnQuery, 'UTF-8');
+
+				/* ファイルサイズをチェックしてみて正常か判断 */
+				earnFileStatQuery = fs.statSync("Query/" + message.author.id + ".txt", 'UTF-8');
+				earnFileStatResp = fs.statSync("Response/" + message.author.id + ".txt", 'UTF-8');
+				if ( (earnFileStatQuery.size != 0) && (earnFileStatResp.size != 0)  )
+				{	/* ファイルが空でない */
+					message.channel.send("ζ\*\'ヮ\'\)ζ＜うっうー！覚えましたよー！");
+				}
+				else
+				{
+					message.channel.send("ζ\*\'ヮ\'\)ζ＜ごめんなさい、私にはむずかしいです…")
+				}
+				earnResp = 0;
 				earnQuery = 0;
 				earnPhase = 0;
 			}
 			else
 			{
 				message.channel.send("キャンセルしましたー");
+				earnResp = 0;
 				earnQuery = 0;
 				earnPhase = 0;
 			}
@@ -122,24 +174,46 @@ client.on('message', (message) =>
 	if ( (message.channel.name == 'やよいとおしゃべり') && (message.author.id != client.user.id))
 	{
 		QueryTblCheck(message);
-		if ( (message.content.match("単語覚えてくれないか？")) && (earnPhase == 0) )
+		if ( (message.content.match("単語覚えてほしい")) && (earnPhase == 0) )
 		{
 			console.log("単語");
+			earnResp = 0;
+			earnQuery = 0;
 			message.channel.send("ζ\*\'ヮ\'\)ζ＜わかりました！何を覚えますか？");
 			earnUser = message.author.id;
 			earnPhase = 1;
 		}
-		if ( message.content.match(/.*もやし確認.*/) )
+		if ( message.content.match(/.*もやし.*確認.*/) )
 		{
 			moyashiData = fs.readFileSync("moyashi/" + message.author.id + ".txt", 'binary');
 			message.channel.send("ζ\*\'ヮ\'\)ζ＜もやしは " + moyashiData +" だけ溜まってますよー！");
 		}
-		if ( message.content.match(/^:yayoi:$/) )
+		else if ( message.content.match(/^:yayoi:$/) )
 		{
 			message.delete();
 			message.channel.send(message.member.displayName + "さんからのスタンプですー", {
 			file: "yayoi_hiru.png" // Or replace with FileOptions object
 			});
+		}
+		else
+		{
+			/* ユーザが登録したレスポンスを検索 */
+			earnWord = isExistFile("Query/" + message.author.id + ".txt");
+			earnWord &= isExistFile("Response/" + message.author.id + ".txt");
+			if ( earnWord != false )
+			{
+				earnWord = fs.readFileSync("Query/" + message.author.id + ".txt", 'UTF-8');
+				earnFileStatQuery = fs.statSync("Query/" + message.author.id + ".txt", 'UTF-8');
+				earnFileStatResp = fs.statSync("Response/" + message.author.id + ".txt", 'UTF-8');
+				if ( (message.content.match(earnWord))
+					&& (earnFileStatQuery.size != 0) && (earnFileStatResp != 0) )
+				{	/* 覚えた単語かつ登録単語サイズが0バイトでないとき */
+					respStr = fs.readFileSync("Response/" + message.author.id + ".txt", 'UTF-8');
+					respMess = message;
+					respQuery = 1;
+					message.channel.startTyping(2);
+				}
+			}
 		}
 	}
 });
@@ -157,10 +231,12 @@ function QueryTblCheck(message)
 		if ( message.content.match(data.queryTbl.arr[loop]) )
 		{	/* 反応するワードと一致 */
 			queryTblNum = loop;
-			respStr = data.respTbl[(dayState * 2) + timeState].arr[queryTblNum];
+			respStr = data.respTbl[(dayState * TIMESTATE_NUM) + timeState].arr[queryTblNum];
 			respMess = message;
 			respQuery = 1;
-			message.channel.startTyping();
+			message.channel.startTyping(2);
+
+			/* ここからもやし処理 */
 			moyashiFile = isExistFile("moyashi/" + message.author.id + ".txt");
 			if ( moyashiFile != false )
 			{
@@ -193,6 +269,10 @@ function isExistFile(file) {
   } catch(err) {
     if(err.code === 'ENOENT') return false
   }
+}
+
+function escapeRegExp(str) {
+  return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
 }
 
 client.login(process.env.YAYOIBOT_TOKEN);
