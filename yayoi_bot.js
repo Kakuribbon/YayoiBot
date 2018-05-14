@@ -1,9 +1,9 @@
 require('dotenv').config();
 /* TYPEDEF */
 const TYPE_TIMEOUT = 10;
-const ASA_TIME = 7;
-const YUUGATA_TIME = 16;
-const YORU_TIME = 19;
+const ASA_TIME = 6;
+const YUUGATA_TIME = 17;
+const YORU_TIME = 20;
 const TIMESTATE_ASA = 1;
 const TIMESTATE_YORU = 0;
 const TIMESTATE_YUUGATA = 2;
@@ -195,6 +195,13 @@ client.on('message', (message) =>
 			file: "yayoi_hiru.png" // Or replace with FileOptions object
 			});
 		}
+		// ダイスロール
+		else if ( message.content.match(/[1-9]d[1-9][0-9]*$/) )
+		{
+			var diceNum = new DiceRoll(message);
+			console.log(message.content);
+			diceNum.SetMess();
+		}
 		else
 		{
 			/* ユーザが登録したレスポンスを検索 */
@@ -273,6 +280,36 @@ function isExistFile(file) {
 
 function escapeRegExp(str) {
   return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//ダイスを振る。
+function DiceRoll(message)
+{
+	// ダイスの個数
+	this.Num = Number(message.content.charAt(0));
+	// ダイスの面
+	this.Men = Number(message.content.substring(2,message.content.length));
+	this.time = new Date();
+	this.diceResult = 0;
+	this.diceResultArr = "";
+	this.SetMess = () =>
+	{
+		var tempDiceResult = 0;
+		if ( (0 != this.Num) && (0 != this.Men) )
+		{
+			for(i = 0; i < this.Num; i ++)
+			{
+				tempDiceResult = Math.floor(((Math.random() * 1000) + this.time.getMilliseconds()) % this.Men);
+				this.diceResult += tempDiceResult
+				this.diceResultArr += tempDiceResult + ","
+			}
+		}
+		respStr = "ζ\*\'ヮ\'\)ζ＜" + this.diceResultArr + "で\r\n合計が" + this.diceResult + "でしたよー！"
+		respMess = message
+		respQuery = 1;
+		message.channel.startTyping(2);
+	}
 }
 
 client.login(process.env.YAYOIBOT_TOKEN);
